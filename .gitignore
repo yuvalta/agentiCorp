@@ -1,0 +1,15 @@
+# deps
+node_modules/
+
+# OS / tooling
+.DS_Store
+.playwright-mcp/
+*.png
+*.jpeg
+
+# runtime state (engine + product artifacts live in workspace)
+workspace/*
+!workspace/.gitkeep
+
+# logs
+*.log

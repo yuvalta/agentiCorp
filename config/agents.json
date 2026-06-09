@@ -1,0 +1,156 @@
+{
+  "$schema": "./agents.registry.schema.json",
+  "agents": {
+    "agent-research": {
+      "state": "DISCOVERY",
+      "role": "Identify profitable micro-SaaS trends and low-competition niches.",
+      "inputs": [],
+      "outputs": ["TrendReport.md"],
+      "skills": ["Web scraping", "RSS monitoring", "Product Hunt / GitHub trend tracking", "Competitor pricing analysis", "Niche viability scoring"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "read-only public sources + Anthropic API",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["payment", "domain-registration", "deployment"]
+      },
+      "boundaries": {
+        "network": "read-only public sources; no auth endpoints",
+        "forbidden": ["payment", "domain-registration", "deployment"]
+      }
+    },
+    "agent-architect": {
+      "state": "BLUEPRINTING",
+      "role": "Translate trend reports into modular production-ready designs.",
+      "inputs": ["TrendReport.md"],
+      "outputs": ["Architecture_Spec.json"],
+      "skills": ["Tech stack selection", "DB schema mapping", "API contract design", "Sequence/topology diagrams"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "Anthropic API only",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["payment", "domain-registration", "deployment"]
+      },
+      "boundaries": { "network": "none", "forbidden": ["payment", "domain-registration", "deployment"] }
+    },
+    "agent-designer": {
+      "state": "BLUEPRINTING",
+      "role": "Own visual aesthetic, branding, components, layout.",
+      "inputs": ["Architecture_Spec.json"],
+      "outputs": ["Design_Tokens.json", "layouts/"],
+      "skills": ["Tailwind utility design", "SVG assets", "Wireframing", "Design tokens", "Brand system"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "Anthropic API only",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["payment", "domain-registration", "deployment"]
+      },
+      "boundaries": { "network": "none", "forbidden": ["payment", "domain-registration", "deployment"] }
+    },
+    "agent-product": {
+      "state": "TRIAGE",
+      "role": "Convert specs and design into bite-sized engineering tickets.",
+      "inputs": ["Architecture_Spec.json", "Design_Tokens.json"],
+      "outputs": ["Product_Backlog.json"],
+      "skills": ["Backlog grooming", "Acceptance criteria", "Milestone mapping", "Sprint sequencing"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "Anthropic API only",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["payment", "domain-registration", "deployment"]
+      },
+      "boundaries": { "network": "none", "forbidden": ["payment", "domain-registration", "deployment"] }
+    },
+    "agent-developer": {
+      "state": "CONSTRUCTION",
+      "role": "Write clean, modular, documented source code.",
+      "inputs": ["Product_Backlog.json", "Architecture_Spec.json", "Design_Tokens.json"],
+      "outputs": ["src/"],
+      "skills": ["Full-stack codegen", "DB migrations", "Env configuration", "Dockerfile authoring", "Test scaffolding"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "Anthropic API + package registries",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["payment", "domain-registration", "deployment"]
+      },
+      "boundaries": { "network": "package registries only", "forbidden": ["payment", "domain-registration", "deployment"] }
+    },
+    "agent-qa": {
+      "state": "CONSTRUCTION",
+      "role": "Break the application, find vulnerabilities, verify acceptance criteria.",
+      "inputs": ["src/", "Product_Backlog.json"],
+      "outputs": ["QA_Audit_Log.json"],
+      "skills": ["Static analysis (node --check)", "Test execution (node --test)", "AC verification", "Regression gating"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "none",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "canBlockPipeline": true,
+        "frozenActions": ["payment", "domain-registration", "deployment"]
+      },
+      "boundaries": { "network": "none", "forbidden": ["payment", "domain-registration", "deployment"] },
+      "blocking": true
+    },
+    "agent-finance": {
+      "state": "AUDIT",
+      "role": "Track runway, overhead, and cost-benefit forecasts.",
+      "inputs": ["Architecture_Spec.json", "QA_Audit_Log.json"],
+      "outputs": ["Expense_Request.json"],
+      "skills": ["API cost calculation", "Domain fee estimation", "Hosting forecast", "Runway modeling"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "Anthropic API only",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["execute-payment"],
+        "note": "may PROPOSE expenses, never execute"
+      },
+      "boundaries": { "network": "none", "forbidden": ["execute-payment"], "note": "may PROPOSE expenses, never execute" }
+    },
+    "agent-marketing": {
+      "state": "AUDIT",
+      "role": "Drive traffic, copy, SEO, automated outreach.",
+      "inputs": ["TrendReport.md", "Design_Tokens.json"],
+      "outputs": ["Marketing_Campaigns.json"],
+      "skills": ["SEO meta", "Social copy", "Cold email sequences", "Landing-page copy"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "Anthropic API only (drafts; no send)",
+        "executePayments": false,
+        "deploy": false,
+        "canApproveGates": false,
+        "frozenActions": ["mass-send", "payment", "deployment"]
+      },
+      "boundaries": { "network": "draft only; no send", "forbidden": ["mass-send", "payment", "deployment"] }
+    },
+    "agent-ops": {
+      "state": "DELIVERY",
+      "role": "Package, push, and deploy QA-validated releases to the product VPS. Recommends a domain name per product.",
+      "inputs": ["src/", "QA_Audit_Log.json", "Architecture_Spec.json"],
+      "outputs": ["Deploy_Plan.json"],
+      "skills": ["Domain name recommendation", "Docker image build", "SSH release to product VPS", "Health check", "Rollback"],
+      "permissions": {
+        "workspaceWrite": true,
+        "network": "deploy targets — FROZEN until CEO DEPLOYMENT approval",
+        "executePayments": false,
+        "deploy": "gated — real push requires CEO approval (Golden Rule)",
+        "canApproveGates": false,
+        "frozenActions": ["unapproved-deploy", "domain-registration", "payment"],
+        "note": "prepares the deploy plan + domain rec; never pushes to live infra without explicit CEO sign-off"
+      },
+      "boundaries": { "network": "deploy targets only, after approval", "forbidden": ["unapproved-deploy", "payment", "domain-registration"] }
+    }
+  }
+}
