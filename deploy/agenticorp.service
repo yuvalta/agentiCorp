@@ -1,0 +1,19 @@
+[Unit]
+Description=AgentiCorp CEO dashboard (Node/http)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/agenticorp
+# Served behind nginx at /agenticorp on an internal port (8000=worldcup, 8011=faceless).
+Environment=PORT=8012
+Environment=BASE_PATH=/agenticorp
+# Optional secrets (ANTHROPIC_API_KEY) — "-" means don't fail if the file is absent.
+EnvironmentFile=-/opt/agenticorp/.env
+ExecStart=/usr/bin/node dashboard/server.js
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

@@ -13,3 +13,6 @@ workspace/*
 
 # logs
 *.log
+
+# secrets
+.env
