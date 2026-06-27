@@ -48,6 +48,7 @@ async function snapshot() {
     idea: await loadText(resolve(ROOT, 'workspace', 'TrendReport.md')),
     ideas: (await loadJSON(IDEAS_FILE, { ideas: [] })).ideas,
     deploy: await loadJSON(resolve(ROOT, 'workspace', 'Deploy_Plan.json'), null),
+    spend: await loadJSON(resolve(ROOT, 'workspace', 'spend.json'), { entries: [], totalUsd: 0, totalIn: 0, totalOut: 0, calls: 0 }),
     stateAgents: STATE_AGENTS,
   };
 }
@@ -193,6 +194,28 @@ const FACTORY_BODY = /* html */ `
 .pq .id{color:var(--cyan);font-weight:600}.pq .cat{color:var(--amber)}.pq .who{color:var(--mut);margin-left:auto}
 .hint{color:var(--mut);font-size:12.5px;margin-top:14px}
 .hint code{color:var(--green);background:var(--surface2);padding:2px 7px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12px}
+
+.spend{margin-top:18px}
+.spendgrid{display:flex;flex-wrap:wrap;gap:28px;align-items:center}
+.spendtotal{display:flex;flex-direction:column;line-height:1}
+.spendtotal b{font-size:30px;font-weight:800;letter-spacing:-.5px;font-family:'JetBrains Mono',monospace;
+  background:linear-gradient(135deg,#818cf8,#22d3ee);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.spendtotal small{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.12em;margin-top:7px}
+.spendmeta{display:flex;gap:18px;font-size:12.5px;color:var(--mut)}
+.spendmeta b{color:var(--ink);font-weight:600;font-family:'JetBrains Mono',monospace}
+.bars{display:flex;flex-direction:column;gap:9px;margin-top:18px}
+.bar{display:flex;align-items:center;gap:10px;font-size:12px}
+.bar .nm{width:96px;color:var(--mut);font-family:'JetBrains Mono',monospace;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .track{flex:1;height:8px;border-radius:999px;background:var(--surface2);overflow:hidden}
+.bar .fill{height:100%;border-radius:999px;transition:width .45s ease}
+.bar .amt{width:96px;text-align:right;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:12px}
+.bar .amt small{color:var(--dim)}
+.fill.opus{background:linear-gradient(90deg,#818cf8,#a78bfa)}
+.fill.sonnet{background:linear-gradient(90deg,#22d3ee,#818cf8)}
+.fill.haiku{background:linear-gradient(90deg,#34d399,#22d3ee)}
+.fill.other{background:var(--dim)}
+.spendnote{color:var(--mut);font-size:12px;margin-top:16px}
+.spendnote b{color:var(--ink);font-weight:600}
 </style>
 
 <p class="eyebrow">Live pipeline</p>
@@ -215,7 +238,19 @@ const FACTORY_BODY = /* html */ `
     <ul id="pq" class="pq"></ul>
     <div class="hint">Approve a gate: <code>npm run approve -- PROJECT_KICKOFF</code></div>
   </div></div>
-</div>`;
+</div>
+
+<div class="panel card spend"><h2>💸 Spend · this product</h2><div class="pb">
+  <div class="spendgrid">
+    <div class="spendtotal"><b id="spendUsd">$0.00</b><small>total est.</small></div>
+    <div class="spendmeta">
+      <span><b id="spendCalls">0</b> LLM calls</span>
+      <span><b id="spendIn">0</b> in · <b id="spendOut">0</b> out tok</span>
+    </div>
+  </div>
+  <div id="spendBars" class="bars"></div>
+  <div class="spendnote">Estimated from token usage × model price. Stub / pre-key runs cost <b>$0</b>.</div>
+</div></div>`;
 
 const FACTORY_SCRIPT = /* html */ `<script>
 const PIPELINE=[
@@ -284,6 +319,30 @@ function render(d){
   const pq=document.getElementById('pq');pq.innerHTML='';
   if(!open.length)pq.innerHTML='<li class="empty">None — running free until next gate.</li>';
   else open.forEach(a=>{const li=document.createElement('li');li.innerHTML='<span class="id">#'+a.id+'</span><span class="cat">'+a.category+'</span><span class="who">'+a.agent+'</span>';pq.appendChild(li);});
+
+  renderSpend(d.spend);
+}
+const MODEL_TIER={'claude-opus-4-8':'opus','claude-sonnet-4-6':'sonnet','claude-haiku-4-5':'haiku'};
+const MODEL_SHORT={'claude-opus-4-8':'Opus 4.8','claude-sonnet-4-6':'Sonnet 4.6','claude-haiku-4-5':'Haiku 4.5'};
+const kf=n=>{n=n||0;return n>=1000?(n/1000).toFixed(n>=10000?0:1)+'k':String(n);};
+const usd=n=>'$'+(n||0).toFixed(2);
+function renderSpend(s){
+  s=s||{entries:[],totalUsd:0,totalIn:0,totalOut:0,calls:0};
+  document.getElementById('spendUsd').textContent=usd(s.totalUsd);
+  document.getElementById('spendCalls').textContent=s.calls||0;
+  document.getElementById('spendIn').textContent=kf(s.totalIn);
+  document.getElementById('spendOut').textContent=kf(s.totalOut);
+  const by={};
+  (s.entries||[]).forEach(e=>{const m=by[e.model]=by[e.model]||{usd:0,calls:0,model:e.model};m.usd+=e.usd||0;m.calls++;});
+  const rows=Object.values(by).sort((a,b)=>b.usd-a.usd);
+  const max=Math.max(...rows.map(r=>r.usd),0.0001);
+  const bars=document.getElementById('spendBars');
+  if(!rows.length){bars.innerHTML='<div class="empty">No LLM calls yet — approve an idea to start the build.</div>';return;}
+  bars.innerHTML=rows.map(r=>{
+    const tier=MODEL_TIER[r.model]||'other', nm=MODEL_SHORT[r.model]||r.model, w=Math.max(3,(r.usd/max)*100);
+    return '<div class="bar"><div class="nm">'+nm+'</div><div class="track"><div class="fill '+tier+'" style="width:'+w+'%"></div></div>'
+      +'<div class="amt">'+usd(r.usd)+' <small>· '+r.calls+'</small></div></div>';
+  }).join('');
 }
 async function poll(){try{const r=await fetch(window.BASE+'/api/state',{cache:'no-store'});render(await r.json());}catch(e){}}
 build();poll();setInterval(poll,2000);
