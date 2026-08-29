@@ -10,19 +10,23 @@ box is UTC and does not shift), cron runs a one-shot container:
 
 ```
 0 4 * * * /usr/bin/docker run --rm --env-file /root/agenticorp/.env \
-  -v agenticorp-workspace:/app/workspace agenticorp:local \
+  -v /root/agenticorp/workspace:/app/workspace agenticorp:local \
   >> /var/log/agenticorp-nightly.log 2>&1
 ```
 
-The container runs `npm run nightly`, which is two steps:
+The container runs `npm run nightly`, which is three steps:
 
 1. `orchestrator/research.js` — one research idea, Gatekeeper-guarded.
-2. `scripts/notify.js` — sends it to WhatsApp via WAHA.
+2. `scripts/archive.js` — writes `workspace/ideas/<date>-<id>-<slug>.md`.
+3. `scripts/notify.js` — sends it to WhatsApp via WAHA.
 
-They are **separate processes on purpose**. The research run installs the
-Gatekeeper's global `fetch` guard, whose payload scan freezes outbound requests
-containing money keywords (`charge`, `purchase`, `invoice_pay`, ...). An idea
-about payments would otherwise silently freeze its own delivery.
+Research and notify are **separate processes on purpose**. The research run
+installs the Gatekeeper's global `fetch` guard, whose payload scan freezes
+outbound requests containing money keywords (`charge`, `purchase`,
+`invoice_pay`, ...). An idea about payments would otherwise silently freeze its
+own delivery.
+
+Archive runs **before** notify so a failed send leaves the idea on disk.
 
 ## Host facts
 
@@ -30,9 +34,16 @@ about payments would otherwise silently freeze its own delivery.
   `claude` on the host, which is why the toolchain lives in the image.
 - Repo: `/root/agenticorp` (clone of `github.com/yuvalta/agentiCorp`, `main`).
 - Image: `agenticorp:local` (~988MB; Node 22 + `@anthropic-ai/claude-code`).
-- Volume: `agenticorp-workspace` → `/app/workspace`. Holds `ideas.json`,
-  `TrendReport.md`, `spend.json`. `workspace/` is gitignored, so **the volume is
-  the only copy** — ideas accumulate here across nights.
+- Ideas on disk: **host bind mount** `/root/agenticorp/workspace` →
+  `/app/workspace`, so they are readable/backup-able without docker:
+  - `ideas/<date>-<id>-<slug>.md` — one file per idea, accumulates. Read these.
+  - `ideas.json` — structured store, accumulates (also feeds the dashboard).
+  - `TrendReport.md` — **overwritten every run**; only the latest.
+  - `spend.json` — notional list-rate token ledger.
+  `workspace/` is gitignored, so this directory is the **only** copy — nothing
+  is pushed to git. Back it up if the ideas matter.
+  (A superseded `agenticorp-workspace` named volume still exists holding the
+  pre-bind-mount snapshot; safe to `docker volume rm` once you don't want it.)
 - Log: `/var/log/agenticorp-nightly.log` (append-only, no rotation configured
   yet — see Known gaps).
 
@@ -64,17 +75,33 @@ ssh root@186.240.146.75 'cd /root/agenticorp && git fetch -q origin \
 
 ```sh
 ssh root@186.240.146.75 'cd /root/agenticorp && docker run --rm --env-file .env \
-  -v agenticorp-workspace:/app/workspace agenticorp:local'
+  -v /root/agenticorp/workspace:/app/workspace agenticorp:local'
 ```
 
-**Read accumulated ideas:**
+**Read accumulated ideas** (plain files on the host — no docker needed):
 
 ```sh
-ssh root@186.240.146.75 'docker run --rm -v agenticorp-workspace:/w alpine \
-  cat /w/ideas.json'
+ssh root@186.240.146.75 'ls -t /root/agenticorp/workspace/ideas/'
+ssh root@186.240.146.75 'cat /root/agenticorp/workspace/ideas/<file>.md'
 ```
 
 **Check last night's run:** `tail -50 /var/log/agenticorp-nightly.log`
+
+## Sharing WhatsApp with Sally
+
+The send goes out over **Sally's** WAHA session (`default`, account
+`18649578990`) on the standalone `waha-waha-1` at `:4000` — AgentiCorp has no
+number of its own.
+
+- **Ban risk is negligible**: one message per day to a single contact who
+  already converses with Sally daily. WhatsApp enforcement targets bulk sends,
+  unsaved/stranger numbers, and spam reports — none apply.
+- **Verified non-interfering**: a send does not fire Sally's webhook
+  (`events: ["message"]` is inbound-only), so she never processes her own
+  outgoing message. Confirmed against `sally-api` logs during a live send.
+- **The real exposure is shared fate**, not bans: if Sally's session dies for
+  any reason (logout, QR expiry, ban), the morning idea stops silently too.
+  Isolating would require a second phone number.
 
 ## Known gaps
 
