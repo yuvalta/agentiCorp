@@ -36,14 +36,36 @@ Analyze market gaps, painful B2B workflows, or underserved tech niches, and retu
    - A single, binary, measurable survival metric (e.g., "15 paying SMB accounts at minimum $150 MRR each ($2,250/mo total) by Day 180").
    - If this threshold is missed by Month 6, the business MUST be abandoned. No vague milestones like "product-market fit" or "positive feedback."
 
-5. "score":
-   - An overall viability rating from 0 to 100 based on four equal factors:
+5. "competition":
+   - "existingSolutions": Name at least 3 REAL, existing products that already
+     solve this problem, by actual product name. Commercial and open-source.
+     If you genuinely cannot name three, say so explicitly and treat that as a
+     warning sign that the problem may not be painful enough to have attracted
+     anyone — not as evidence of a green field.
+   - "whyTheyLose": For each, the specific reason a buyer would switch. Not
+     "they are bloated" — a concrete gap (price band, deployment model,
+     missing integration, wrong buyer).
+   - "saturation": one of "greenfield" | "few players" | "crowded" |
+     "commoditized".
+
+6. "score":
+   - An overall viability rating from 0 to 100. Start from four factors:
      * Urgent market demand (0-25)
      * Reachability without audience (0-25)
      * Speed-to-build advantage (0-25)
      * Speed-to-first-revenue (0-25)
+   - THEN apply a competition penalty to the subtotal:
+     * greenfield: -0    few players: -10    crowded: -25    commoditized: -40
+   - Calibration — be harsh, most ideas are mediocre:
+     * 80+ = exceptional. Reserved for a rare idea with an unfair, specific,
+       hard-to-copy advantage. Awarding this should feel uncomfortable.
+     * 60-79 = genuinely promising, worth a timeboxed test.
+     * 40-59 = plausible but unremarkable; most decent-sounding ideas land here.
+     * under 40 = do not pursue.
+   - Do not inflate. A well-argued write-up is not evidence of a good business.
+     If you cannot name what makes this unfair, it is not above 60.
 
-6. "risksAndDefensibility":
+7. "risksAndDefensibility":
    - The biggest reason this could fail immediately.
    - What prevents a larger competitor or clone from killing it once launched.`;
 
@@ -88,6 +110,16 @@ const IDEA_SCHEMA = {
       required: ['survivalMetric', 'killCondition'],
       additionalProperties: false,
     },
+    competition: {
+      type: 'object',
+      properties: {
+        existingSolutions: { type: 'array', items: { type: 'string' } },
+        whyTheyLose: { type: 'array', items: { type: 'string' } },
+        saturation: { type: 'string', enum: ['greenfield', 'few players', 'crowded', 'commoditized'] },
+      },
+      required: ['existingSolutions', 'whyTheyLose', 'saturation'],
+      additionalProperties: false,
+    },
     score: { type: 'integer' },
     risksAndDefensibility: {
       type: 'object',
@@ -99,7 +131,7 @@ const IDEA_SCHEMA = {
       additionalProperties: false,
     },
   },
-  required: ['idea', 'distribution', 'revenuePath', 'monthSixSignal', 'score', 'risksAndDefensibility'],
+  required: ['idea', 'distribution', 'revenuePath', 'monthSixSignal', 'competition', 'score', 'risksAndDefensibility'],
   additionalProperties: false,
 };
 
@@ -128,7 +160,16 @@ const STUB_IDEA = {
     survivalMetric: '12 paying accounts at minimum $199 MRR each ($2,388/mo total) by Day 180.',
     killCondition: 'Fewer than 12 paying accounts or under $2,388 MRR on Day 180 — abandon.',
   },
-  score: 62,
+  competition: {
+    existingSolutions: ['Svix', 'Hookdeck', 'Convoy (open-source)'],
+    whyTheyLose: [
+      'Svix targets the platform-scale buyer and prices above small vendors',
+      'Hookdeck is inbound-ingestion first; outbound replay is secondary',
+      'Convoy is self-hosted only and needs infra work the buyer is avoiding',
+    ],
+    saturation: 'crowded',
+  },
+  score: 41,
   risksAndDefensibility: {
     primaryFatalRisk: 'Buyers treat webhook reliability as a two-sprint internal fix and refuse to add a vendor to a critical delivery path.',
     defensibilityStrategy: 'Delivery history and replay audit trail accumulate per customer, so switching costs grow with retained event data; being in the critical path is itself the moat once trusted.',

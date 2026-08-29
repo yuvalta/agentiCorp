@@ -38,8 +38,11 @@ function formatNested(i) {
   const channels = (i.distribution?.specificChannelsOrPlatforms ?? [])
     .map((c) => clip(c, 90))
     .join(' | ');
+  const rivals = (i.competition?.existingSolutions ?? [])
+    .map((c) => clip(c, 60))
+    .join(', ');
   return [
-    `*${i.idea?.title ?? 'Untitled'}*  (score ${i.score ?? 0}/100)`,
+    `*${i.idea?.title ?? 'Untitled'}*  (score ${i.score ?? 0}/100 · ${i.competition?.saturation ?? 'saturation n/a'})`,
     '',
     clip(i.idea?.oneLiner, 300),
     '',
@@ -54,6 +57,8 @@ function formatNested(i) {
     '',
     `*Month-6 survival*: ${clip(i.monthSixSignal?.survivalMetric, 220)}`,
     `*Kill if*: ${clip(i.monthSixSignal?.killCondition, 200)}`,
+    '',
+    `*Already doing this*: ${rivals || 'none named'}`,
     '',
     `_Fatal risk_: ${clip(i.risksAndDefensibility?.primaryFatalRisk, 200)}`,
     `_Moat_: ${clip(i.risksAndDefensibility?.defensibilityStrategy, 200)}`,
