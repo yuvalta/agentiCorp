@@ -39,8 +39,11 @@ async function main() {
     process.exit(1);
   }
 
+  // Title lives at idea.idea.title in the current shape, idea.title in the
+  // legacy one; appendIdea mirrors it to the top level either way.
+  const title = idea.title ?? idea.idea?.title ?? 'untitled';
   const day = (idea.createdAt ?? new Date().toISOString()).slice(0, 10);
-  const file = resolve(OUT_DIR, `${day}-${idea.id}-${slug(idea.title)}.md`);
+  const file = resolve(OUT_DIR, `${day}-${idea.id}-${slug(title)}.md`);
 
   // Frontmatter mirrors the structured fields so the archive stays greppable
   // and sortable without parsing ideas.json.
@@ -48,9 +51,8 @@ async function main() {
     '---',
     `id: ${idea.id}`,
     `date: ${idea.createdAt ?? new Date().toISOString()}`,
-    `title: ${JSON.stringify(idea.title ?? '')}`,
+    `title: ${JSON.stringify(title)}`,
     `score: ${idea.score ?? 0}`,
-    `confidence: ${idea.confidence ?? 'unknown'}`,
     `status: ${idea.status ?? 'new'}`,
     '---',
     '',

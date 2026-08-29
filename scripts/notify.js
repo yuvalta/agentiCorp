@@ -33,7 +33,35 @@ function clip(s, n) {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
 
-function formatIdea(idea) {
+// Current (nested) shape.
+function formatNested(i) {
+  const channels = (i.distribution?.specificChannelsOrPlatforms ?? [])
+    .map((c) => clip(c, 90))
+    .join(' | ');
+  return [
+    `*${i.idea?.title ?? 'Untitled'}*  (score ${i.score ?? 0}/100)`,
+    '',
+    clip(i.idea?.oneLiner, 300),
+    '',
+    `*Why they pay*: ${clip(i.idea?.valueProposition, 260)}`,
+    '',
+    `*First 10 customers*: ${clip(i.distribution?.first10CustomersTactic, 340)}`,
+    `*Channels*: ${channels || 'none listed'}`,
+    '',
+    `*Pricing*: ${clip(i.revenuePath?.pricingModel, 120)}`,
+    `*First dollar*: ~${i.revenuePath?.timeToFirstDollarDays ?? '?'} days`,
+    `*To profitability*: ${clip(i.revenuePath?.path2Profitability, 240)}`,
+    '',
+    `*Month-6 survival*: ${clip(i.monthSixSignal?.survivalMetric, 220)}`,
+    `*Kill if*: ${clip(i.monthSixSignal?.killCondition, 200)}`,
+    '',
+    `_Fatal risk_: ${clip(i.risksAndDefensibility?.primaryFatalRisk, 200)}`,
+    `_Moat_: ${clip(i.risksAndDefensibility?.defensibilityStrategy, 200)}`,
+  ].join('\n');
+}
+
+// Ideas stored before 2026-08-29 use the flat shape.
+function formatLegacy(idea) {
   return [
     `*${idea.title}*  (score ${idea.score}/100, ${idea.confidence} confidence)`,
     '',
@@ -47,6 +75,12 @@ function formatIdea(idea) {
     '',
     `_Risks_: ${(idea.risks ?? []).map((r) => clip(r, 90)).join(' | ') || 'none listed'}`,
   ].join('\n');
+}
+
+function formatIdea(idea) {
+  return idea && typeof idea.idea === 'object' && idea.idea !== null
+    ? formatNested(idea)
+    : formatLegacy(idea);
 }
 
 async function main() {

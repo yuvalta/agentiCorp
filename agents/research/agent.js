@@ -2,98 +2,137 @@ import { BaseAgent } from '../baseAgent.js';
 import { completeJSON } from '../../lib/llm.js';
 import { appendIdea, renderReport } from '../../lib/ideasStore.js';
 
-// Research is aimed at the operator's exit plan, not at auto-buildable
-// micro-SaaS: the goal is ONE candidate business worth a 9-month full-time bet,
-// judged against real constraints (see FTMVaults/ExitPlan-FTM). The two fields
-// that do the most work are `distribution` and `monthSixSignal` — an idea that
-// cannot answer those is not a candidate, however good the market looks.
-const SYSTEM = `You are agent-research, sourcing candidate businesses for a
-solo technical founder in Israel planning to leave a salaried job.
+// Operator-authored prompt (2026-08-29). Global market, execution-focused,
+// scored on four equal factors. The two fields that decide whether an idea is
+// real are `distribution.first10CustomersTactic` (reachable with no audience)
+// and `monthSixSignal.killCondition` (a binary abandon threshold).
+const SYSTEM = `You are an exceptionally realistic, skeptical, and execution-focused business research agent. Your goal is to identify viable, high-potential business ideas for a technical founder who can build rapidly but starts with ZERO audience, NO pre-existing audience, and NO warm distribution network.
 
-His situation, which every idea must be judged against:
-- Replacing ~27,000 NIS/month net salary. Real burn is ~23,000 NIS/month.
-- Runway is ~6 months on a 150,000 NIS budget — the baseline, not a stretch.
-  Month 6 is therefore a hard stop, not a mid-course checkpoint: by then the
-  business either covers burn or it is abandoned. Judge every idea against
-  reaching meaningful revenue inside 6 months, not 9 or 12.
-- Real edge: senior engineering, shipping working software fast, AI/agent
-  systems. He builds faster than most.
-- Named weaknesses, by his own assessment: selling, and network/connections.
-  He has no audience and no warm intro list to lean on.
-- He wants a company with durable value, not just freelance income that stops
-  when he stops working.
+Reject hand-waving or generic startup advice. Dismiss ideas where the primary go-to-market depends on "content marketing," "SEO," "social media growth," or "leveraging a network." Favor B2B micro-SaaS, developer tools, or niche automated services where rapid development velocity provides a unfair advantage and where the first paying customer can be reached globally through direct, outbound, or programmatically targetable channels.
 
-Be concrete and skeptical. Reject ideas whose only path to customers is
-"content marketing" or "reach out to my network" — he has neither yet. Prefer
-ideas where his building speed is the actual advantage, and where the first
-paying customer is reachable by a specific, nameable action within weeks.`;
+The target market is GLOBAL unless a local edge provides a distinct programmatic advantage.`;
 
-const PROMPT = `Identify ONE candidate business for this founder and return it
-as structured JSON. Be concrete and skeptical — no hype, no generic advice.
+const PROMPT = `### INSTRUCTIONS
 
-Hard requirements for your answer:
-- "distribution" must name a specific way to reach the first 10 paying
-  customers WITHOUT an existing audience or warm network. Name real channels,
-  places, or intermediaries, not "do content marketing".
-- "monthSixSignal" must be a single measurable outcome that, if missed by
-  month 6, means abandon. A number and a date, not a feeling. Month 6 is the
-  end of the runway, so this is a survival threshold, not a progress marker.
-- "revenuePath" must address how this gets toward 27,000 NIS/month against a
-  ~23,000 NIS/month burn, and how long until the first shekel. Anything that
-  cannot plausibly produce revenue within 6 months should score low.
-- "score" is a 0-100 rating combining demand, reachability given his lack of
-  network, and fit with his engineering edge.`;
+Analyze market gaps, painful B2B workflows, or underserved tech niches, and return EXACTLY ONE validated candidate business as structured JSON matching the schema below.
+
+### JSON Schema Requirements
+
+1. "idea":
+   - "title": A concise, descriptive name for the product/service.
+   - "oneLiner": What the product does, for whom, and the exact problem it solves in one sharp sentence.
+   - "valueProposition": Why a buyer pays for this (e.g., saves $X hours, replaces $Y expensive software, fixes compliance risk Z).
+
+2. "distribution":
+   - Name precise, highly targetable global channels to acquire the FIRST 10 PAYING CUSTOMERS without an existing network or content marketing.
+   - Must specify actionable tactics (e.g., scraper target lists, specific platform app marketplaces, targeted cold outbound filters on Apollo/LinkedIn, integration ecosystems, or specialized forum/community pain-point monitoring).
+
+3. "revenuePath":
+   - Price point and monetization structure (e.g., $99/mo seat-based, $499 flat rate).
+   - Expected time to first dollar (must be achievable within 30-60 days).
+   - Realistic path to reaching default profitability/sustainability (e.g., number of customers needed to hit a base target like $5,000/month MRR).
+
+4. "monthSixSignal":
+   - A single, binary, measurable survival metric (e.g., "15 paying SMB accounts at minimum $150 MRR each ($2,250/mo total) by Day 180").
+   - If this threshold is missed by Month 6, the business MUST be abandoned. No vague milestones like "product-market fit" or "positive feedback."
+
+5. "score":
+   - An overall viability rating from 0 to 100 based on four equal factors:
+     * Urgent market demand (0-25)
+     * Reachability without audience (0-25)
+     * Speed-to-build advantage (0-25)
+     * Speed-to-first-revenue (0-25)
+
+6. "risksAndDefensibility":
+   - The biggest reason this could fail immediately.
+   - What prevents a larger competitor or clone from killing it once launched.`;
 
 const IDEA_SCHEMA = {
   type: 'object',
   properties: {
-    title: { type: 'string', description: 'Short business name / idea label' },
-    problem: { type: 'string', description: 'The specific, expensive problem being solved' },
-    audience: { type: 'string', description: 'Who pays, specifically enough to go find them' },
-    niche: { type: 'array', items: { type: 'string' }, description: '3-4 demand/low-competition signals' },
-    model: { type: 'string', description: 'e.g. SaaS, productized service, marketplace' },
-    priceRange: { type: 'string', description: 'e.g. 2,000-6,000 NIS/mo per customer' },
-    marketSize: { type: 'string', description: 'reachable market: small/medium/large' },
-    distribution: { type: 'string', description: 'How to reach the first 10 paying customers with NO audience and NO warm network. Specific channels or intermediaries.' },
-    edgeFit: { type: 'string', description: 'Why his building speed is the advantage here, and how much the business leans on selling/network (his weak areas)' },
-    revenuePath: { type: 'string', description: 'Path toward 27,000 NIS/mo net, and realistic time to first paying customer' },
-    monthSixSignal: { type: 'string', description: 'One measurable outcome by month 6 that decides continue vs abandon. Must include a number.' },
-    risks: { type: 'array', items: { type: 'string' }, description: '2-4 concrete ways this fails' },
-    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
-    score: { type: 'integer', description: '0-100 viability rating' },
+    idea: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        oneLiner: { type: 'string' },
+        valueProposition: { type: 'string' },
+      },
+      required: ['title', 'oneLiner', 'valueProposition'],
+      additionalProperties: false,
+    },
+    distribution: {
+      type: 'object',
+      properties: {
+        first10CustomersTactic: { type: 'string' },
+        specificChannelsOrPlatforms: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['first10CustomersTactic', 'specificChannelsOrPlatforms'],
+      additionalProperties: false,
+    },
+    revenuePath: {
+      type: 'object',
+      properties: {
+        pricingModel: { type: 'string' },
+        timeToFirstDollarDays: { type: 'integer' },
+        path2Profitability: { type: 'string' },
+      },
+      required: ['pricingModel', 'timeToFirstDollarDays', 'path2Profitability'],
+      additionalProperties: false,
+    },
+    monthSixSignal: {
+      type: 'object',
+      properties: {
+        survivalMetric: { type: 'string' },
+        killCondition: { type: 'string' },
+      },
+      required: ['survivalMetric', 'killCondition'],
+      additionalProperties: false,
+    },
+    score: { type: 'integer' },
+    risksAndDefensibility: {
+      type: 'object',
+      properties: {
+        primaryFatalRisk: { type: 'string' },
+        defensibilityStrategy: { type: 'string' },
+      },
+      required: ['primaryFatalRisk', 'defensibilityStrategy'],
+      additionalProperties: false,
+    },
   },
-  required: [
-    'title', 'problem', 'audience', 'niche', 'model', 'priceRange', 'marketSize',
-    'distribution', 'edgeFit', 'revenuePath', 'monthSixSignal', 'risks',
-    'confidence', 'score',
-  ],
+  required: ['idea', 'distribution', 'revenuePath', 'monthSixSignal', 'score', 'risksAndDefensibility'],
   additionalProperties: false,
 };
 
 // Deterministic fallback used when the CLI is unavailable (offline / tests).
 const STUB_IDEA = {
-  title: 'Compliance evidence automation for Israeli SaaS vendors',
-  problem: 'Small Israeli SaaS companies selling into enterprise burn weeks per deal assembling security questionnaire and SOC2 evidence by hand.',
-  audience: 'Israeli B2B SaaS companies of 10-60 people that have started losing deals to security review.',
-  niche: [
-    'Security questionnaires are a named blocker in enterprise sales cycles',
-    'Existing tools price for US mid-market, not 20-person Israeli vendors',
-    'Buyers are concentrated in a few Tel Aviv/Herzliya office parks',
-  ],
-  model: 'Productized service moving to SaaS',
-  priceRange: '3,000-8,000 NIS/mo per customer',
-  marketSize: 'small',
-  distribution: 'Israeli SaaS companies are geographically concentrated and publicly listed on local startup databases; reachable by direct outreach to VP Sales rather than by audience-building.',
-  edgeFit: 'The work is document pipeline plumbing plus AI extraction — squarely his engineering edge. Still requires cold outreach, which is his weakest area, so this trades on a skill he must build.',
-  revenuePath: 'Six customers at ~5,000 NIS/mo reaches ~30,000 NIS/mo. First paying customer realistically 8-12 weeks in, likely as a paid manual pilot before any product exists.',
-  monthSixSignal: 'At least 3 paying customers at 3,000+ NIS/mo by month 6, or abandon.',
-  risks: [
-    'Cold outreach is the founder\'s named weakness and is the entire distribution model',
-    'Incumbents can price down into this segment once it is proven',
-    'May stay a services business that does not compound into company value',
-  ],
-  confidence: 'medium',
-  score: 61,
+  idea: {
+    title: 'Webhook Replay — durable retry + audit for outbound webhooks',
+    oneLiner: 'A drop-in webhook delivery layer for B2B SaaS vendors that retries, replays, and audits failed outbound webhooks so their customers stop opening support tickets about missed events.',
+    valueProposition: 'Replaces weeks of in-house queue/retry engineering and removes a recurring class of support load; buyers pay to stop losing customer trust on silent delivery failures.',
+  },
+  distribution: {
+    first10CustomersTactic: 'Scrape public API/developer docs for vendors that document outbound webhooks but no retry or replay guarantees; cold-email the named platform/API owner with a diff of their own docs against a working replay demo.',
+    specificChannelsOrPlatforms: [
+      'Scraped target list from public API docs mentioning "webhook" without "retry"',
+      'Apollo filters: Head of Platform / API at 20-200 person B2B SaaS',
+      'Integration marketplaces (Zapier, Make) partner directories',
+      'Monitoring of vendor status pages and changelogs for webhook incidents',
+    ],
+  },
+  revenuePath: {
+    pricingModel: '$199/mo flat for up to 1M deliveries, $499/mo above',
+    timeToFirstDollarDays: 45,
+    path2Profitability: '25 customers at $199/mo reaches ~$5,000/mo MRR; infra cost scales sublinearly, so gross margin holds above 85%.',
+  },
+  monthSixSignal: {
+    survivalMetric: '12 paying accounts at minimum $199 MRR each ($2,388/mo total) by Day 180.',
+    killCondition: 'Fewer than 12 paying accounts or under $2,388 MRR on Day 180 — abandon.',
+  },
+  score: 62,
+  risksAndDefensibility: {
+    primaryFatalRisk: 'Buyers treat webhook reliability as a two-sprint internal fix and refuse to add a vendor to a critical delivery path.',
+    defensibilityStrategy: 'Delivery history and replay audit trail accumulate per customer, so switching costs grow with retained event data; being in the critical path is itself the moat once trusted.',
+  },
 };
 
 // agent-research — DISCOVERY. Live structured LLM call, stub fallback.
@@ -106,19 +145,22 @@ export class ResearchAgent extends BaseAgent {
     let prior = [];
     try {
       const seen = JSON.parse(await this.readArtifact('ideas.json'));
-      prior = (seen.ideas ?? []).map((i) => i.title).filter(Boolean);
+      prior = (seen.ideas ?? [])
+        .map((i) => i.idea?.title ?? i.title) // new nested shape, then legacy flat
+        .filter(Boolean);
     } catch { /* no store yet — first run */ }
 
     const prompt = prior.length
       ? [
           PROMPT,
           '',
-          'Already proposed in previous runs — do NOT repeat these, and avoid',
-          'close variations on the same theme, market, or business model:',
+          '### ALREADY PROPOSED — DO NOT REPEAT',
+          'These were returned by previous runs. Do not repeat them, and avoid',
+          'close variations on the same theme, buyer, or business model:',
           ...prior.map((t) => `- ${t}`),
           '',
           'Propose something materially different: a different buyer, a',
-          'different industry, or a different shape of business.',
+          'different vertical, or a different shape of business.',
         ].join('\n')
       : PROMPT;
 
