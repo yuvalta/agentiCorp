@@ -1,5 +1,13 @@
 # Deploy — AgentiCorp CEO dashboard
 
+> **⚠️ SUPERSEDED / NOT LIVE (2026-08-29).** This describes the retired
+> `72.62.52.253` box, which is dead (SSH times out). Everything migrated to
+> `186.240.146.75` on 2026-08-03, but the **dashboard was not brought along** —
+> only the nightly research job runs there now, as a container. The systemd +
+> `/opt` + nginx-injection steps below do not apply to the new Docker host.
+> See **`NIGHTLY.md`** for what is actually deployed. Kept for reference if the
+> dashboard is ever revived.
+
 Runs on the VPS at **`http://72.62.52.253/agenticorp`** (basic-auth protected).
 Same box as the worldcup (`/`, :8000) and faceless (`/faceless`, :8011) apps.
 AgentiCorp uses **port 8012** and mounts at **`/agenticorp`**. Dev flow: push to
