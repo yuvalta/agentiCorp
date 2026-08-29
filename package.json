@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node orchestrator/orchestrator.js",
     "research": "node orchestrator/research.js",
+    "notify": "node scripts/notify.js",
+    "nightly": "node orchestrator/research.js && node scripts/notify.js",
     "dashboard": "node dashboard/server.js",
     "approve": "node dashboard/cli.js",
     "test": "node --test"

@@ -3,7 +3,7 @@
   "agents": {
     "agent-research": {
       "state": "DISCOVERY",
-      "role": "Identify profitable micro-SaaS trends and low-competition niches.",
+      "role": "Source candidate businesses for the operator's exit plan: reachable without an existing network, fit to an engineering edge.",
       "inputs": [],
       "outputs": ["TrendReport.md"],
       "skills": ["Web scraping", "RSS monitoring", "Product Hunt / GitHub trend tracking", "Competitor pricing analysis", "Niche viability scoring"],
