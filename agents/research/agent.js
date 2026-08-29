@@ -95,7 +95,29 @@ const STUB_IDEA = {
 // Emits TrendReport.md (pipeline input) AND appends to the ideas store.
 export class ResearchAgent extends BaseAgent {
   async run() {
-    const idea = (await completeJSON({ system: SYSTEM, prompt: PROMPT, schema: IDEA_SCHEMA, source: this.id })) ?? STUB_IDEA;
+    // Each run is a fresh LLM call with no memory of earlier ones, so without
+    // this the agent keeps re-proposing the same few themes. Feed prior titles
+    // back in as an exclusion list.
+    let prior = [];
+    try {
+      const seen = JSON.parse(await this.readArtifact('ideas.json'));
+      prior = (seen.ideas ?? []).map((i) => i.title).filter(Boolean);
+    } catch { /* no store yet — first run */ }
+
+    const prompt = prior.length
+      ? [
+          PROMPT,
+          '',
+          'Already proposed in previous runs — do NOT repeat these, and avoid',
+          'close variations on the same theme, market, or business model:',
+          ...prior.map((t) => `- ${t}`),
+          '',
+          'Propose something materially different: a different buyer, a',
+          'different industry, or a different shape of business.',
+        ].join('\n')
+      : PROMPT;
+
+    const idea = (await completeJSON({ system: SYSTEM, prompt, schema: IDEA_SCHEMA, source: this.id })) ?? STUB_IDEA;
     const report = renderReport(idea);
     const outputs = [await this.emit('TrendReport.md', report)];
 
