@@ -2,15 +2,20 @@ import { BaseAgent } from '../baseAgent.js';
 import { completeJSON } from '../../lib/llm.js';
 import { appendIdea, renderReport } from '../../lib/ideasStore.js';
 
-// Operator-authored prompt (2026-08-29). Global market, execution-focused,
-// scored on four equal factors. The two fields that decide whether an idea is
-// real are `distribution.first10CustomersTactic` (reachable with no audience)
-// and `monthSixSignal.killCondition` (a binary abandon threshold).
-const SYSTEM = `You are an exceptionally realistic, skeptical, and execution-focused business research agent. Your goal is to identify viable, high-potential business ideas for a technical founder who can build rapidly but starts with ZERO audience, NO pre-existing audience, and NO warm distribution network.
+// Operator-authored prompt (2026-08-29). Broadened 2026-09-06 at operator
+// request — it was converging on B2B micro-SaaS every night because the
+// original text explicitly favored software. Category is now an explicit,
+// rotated field instead of an implicit default. Global market, execution-
+// focused, scored on four equal factors. The two fields that decide whether
+// an idea is real are `distribution.first10CustomersTactic` (reachable with
+// no audience) and `monthSixSignal.killCondition` (a binary abandon threshold).
+const SYSTEM = `You are an exceptionally realistic, skeptical, and execution-focused business research agent. Your goal is to identify viable, high-potential business ideas for a founder who has ~6 months of runway and ~150,000 NIS of capital, can build software fast, but starts with ZERO existing audience and NO warm distribution network.
 
-Reject hand-waving or generic startup advice. Dismiss ideas where the primary go-to-market depends on "content marketing," "SEO," "social media growth," or "leveraging a network." Favor B2B micro-SaaS, developer tools, or niche automated services where rapid development velocity provides a unfair advantage and where the first paying customer can be reached globally through direct, outbound, or programmatically targetable channels.
+Do NOT default to software. Software/SaaS is only one possible category among several equally valid ones: a physical product or e-commerce brand, a service business the founder delivers or manages (not necessarily local), a content/media product monetized by sponsorship or subscription, an education/info product, a marketplace, or a licensing/IP play. Across repeated runs, rotate across these categories — do not converge on B2B micro-SaaS just because it's the safest guess.
 
-The target market is GLOBAL unless a local edge provides a distinct programmatic advantage.`;
+Reject hand-waving or generic startup advice regardless of category. Dismiss any idea whose primary go-to-market depends on "content marketing," "SEO," "social media growth," or "leveraging a network" — UNLESS the idea's category is itself content/media and audience-building via one specific, named channel and mechanic IS the product (e.g. a niche newsletter monetized by sponsorship still needs a concrete first-100-subscribers tactic, not vague "grow an audience").
+
+The target market is GLOBAL unless a local edge (sourcing, regulation, service delivery, logistics) provides a distinct programmatic advantage.`;
 
 const PROMPT = `### INSTRUCTIONS
 
@@ -20,12 +25,13 @@ Analyze market gaps, painful B2B workflows, or underserved tech niches, and retu
 
 1. "idea":
    - "title": A concise, descriptive name for the product/service.
+   - "category": One of "software-saas", "physical-product-ecommerce", "service-business", "content-media", "education-info-product", "marketplace-platform", "licensing-ip". Pick honestly based on what the business actually is — do not force-fit into software-saas.
    - "oneLiner": What the product does, for whom, and the exact problem it solves in one sharp sentence.
-   - "valueProposition": Why a buyer pays for this (e.g., saves $X hours, replaces $Y expensive software, fixes compliance risk Z).
+   - "valueProposition": Why a buyer pays for this (e.g., saves $X hours, replaces $Y expensive alternative, fixes a compliance/quality/cost problem).
 
 2. "distribution":
    - Name precise, highly targetable global channels to acquire the FIRST 10 PAYING CUSTOMERS without an existing network or content marketing.
-   - Must specify actionable tactics (e.g., scraper target lists, specific platform app marketplaces, targeted cold outbound filters on Apollo/LinkedIn, integration ecosystems, or specialized forum/community pain-point monitoring).
+   - Tactics must fit the category: for software, scraper target lists, app marketplaces, targeted cold outbound on Apollo/LinkedIn, integration ecosystems, forum/community monitoring; for a physical product, a named paid-ad channel + audience filter, a specific marketplace or wholesale/retail placement, or direct outreach to a named buyer list; for a service business, a scraped prospect list + cold outreach, procurement portals, industry directories, or a specific referral/partnership channel; for content/media, one named channel and monetization mechanic with a concrete first-100-subscriber tactic. Vague "build an audience" or "post content" is not acceptable for any category.
 
 3. "revenuePath":
    - Price point and monetization structure (e.g., $99/mo seat-based, $499 flat rate).
@@ -52,7 +58,7 @@ Analyze market gaps, painful B2B workflows, or underserved tech niches, and retu
    - An overall viability rating from 0 to 100. Start from four factors:
      * Urgent market demand (0-25)
      * Reachability without audience (0-25)
-     * Speed-to-build advantage (0-25)
+     * Speed-to-launch advantage (0-25) — how fast this founder specifically (fast builder, 6mo runway, 150K NIS capital, no existing audience) could get a sellable version live, whatever the category
      * Speed-to-first-revenue (0-25)
    - THEN apply a competition penalty to the subtotal:
      * greenfield: -0    few players: -10    crowded: -25    commoditized: -40
@@ -76,10 +82,22 @@ const IDEA_SCHEMA = {
       type: 'object',
       properties: {
         title: { type: 'string' },
+        category: {
+          type: 'string',
+          enum: [
+            'software-saas',
+            'physical-product-ecommerce',
+            'service-business',
+            'content-media',
+            'education-info-product',
+            'marketplace-platform',
+            'licensing-ip',
+          ],
+        },
         oneLiner: { type: 'string' },
         valueProposition: { type: 'string' },
       },
-      required: ['title', 'oneLiner', 'valueProposition'],
+      required: ['title', 'category', 'oneLiner', 'valueProposition'],
       additionalProperties: false,
     },
     distribution: {
@@ -139,6 +157,7 @@ const IDEA_SCHEMA = {
 const STUB_IDEA = {
   idea: {
     title: 'Webhook Replay — durable retry + audit for outbound webhooks',
+    category: 'software-saas',
     oneLiner: 'A drop-in webhook delivery layer for B2B SaaS vendors that retries, replays, and audits failed outbound webhooks so their customers stop opening support tickets about missed events.',
     valueProposition: 'Replaces weeks of in-house queue/retry engineering and removes a recurring class of support load; buyers pay to stop losing customer trust on silent delivery failures.',
   },
@@ -184,26 +203,48 @@ export class ResearchAgent extends BaseAgent {
     // this the agent keeps re-proposing the same few themes. Feed prior titles
     // back in as an exclusion list.
     let prior = [];
+    let recentCategories = [];
     try {
       const seen = JSON.parse(await this.readArtifact('ideas.json'));
-      prior = (seen.ideas ?? [])
+      const ideas = seen.ideas ?? [];
+      prior = ideas
         .map((i) => i.idea?.title ?? i.title) // new nested shape, then legacy flat
+        .filter(Boolean);
+      // Legacy (pre-2026-09-06) ideas have no category field — only the
+      // nested shape does, so this naturally ignores them rather than
+      // skewing the recent-categories window with unknowns.
+      recentCategories = ideas
+        .slice(-5)
+        .map((i) => i.idea?.category)
         .filter(Boolean);
     } catch { /* no store yet — first run */ }
 
-    const prompt = prior.length
-      ? [
-          PROMPT,
-          '',
-          '### ALREADY PROPOSED — DO NOT REPEAT',
-          'These were returned by previous runs. Do not repeat them, and avoid',
-          'close variations on the same theme, buyer, or business model:',
-          ...prior.map((t) => `- ${t}`),
-          '',
-          'Propose something materially different: a different buyer, a',
-          'different vertical, or a different shape of business.',
-        ].join('\n')
-      : PROMPT;
+    let prompt = PROMPT;
+    if (prior.length) {
+      prompt = [
+        prompt,
+        '',
+        '### ALREADY PROPOSED — DO NOT REPEAT',
+        'These were returned by previous runs. Do not repeat them, and avoid',
+        'close variations on the same theme, buyer, or business model:',
+        ...prior.map((t) => `- ${t}`),
+        '',
+        'Propose something materially different: a different buyer, a',
+        'different vertical, or a different shape of business.',
+      ].join('\n');
+    }
+    if (recentCategories.length) {
+      prompt = [
+        prompt,
+        '',
+        '### RECENT CATEGORIES — FAVOR SOMETHING ELSE',
+        `The last ${recentCategories.length} ideas used these categories, in order:`,
+        ...recentCategories.map((c) => `- ${c}`),
+        '',
+        'Pick a category NOT in that list unless you have a genuinely',
+        'exceptional idea that happens to fall in a repeated one.',
+      ].join('\n');
+    }
 
     const idea = (await completeJSON({ system: SYSTEM, prompt, schema: IDEA_SCHEMA, source: this.id })) ?? STUB_IDEA;
     const report = renderReport(idea);
